@@ -1,0 +1,178 @@
+---
+title: "Prudential glm"
+author: "Francia Moscoso"
+date: "April 26, 2016"
+output: html_document
+---
+
+
+```{r LoadLib, message=F, warning=F}
+library(dplyr)     
+library(corrplot) 
+library(ggplot2)
+library(gridExtra)
+library(MASS)
+library(ROCR)
+library(ROCR)
+```
+
+**Loading Data Sets**
+```{r comment="", echo=TRUE}
+# Working Directory
+setwd("~/SprintboardProject/PrudentialIns") 
+
+train <- read.csv("./DataSets/train.csv", header = TRUE)
+test <-  read.csv("./DataSets/test.csv", header = TRUE)
+```
+<br>
+**Function that populates missing values with the median**    
+```{r comment="", echo=TRUE}
+manage_na <- function(tempo)
+{
+  for(i in 1:ncol(tempo))
+  {
+    if(is.numeric(tempo[,i]))
+    {
+      tempo[is.na(tempo[,i]),i] <- median(tempo[!is.na(tempo[,i]),i])
+    }
+  }
+  tempo
+}
+```
+
+**Analyze dependent variable Train Response** 
+```{r comment="", echo=TRUE}
+nrow(train) 
+
+summary(train$Response)
+
+table(train$Response)
+
+hist(train$Response, main="Histogram", prob=T, breaks = 8,col="blue")
+
+# Add a Normal Curve (Thanks to Peter Dalgaard)
+TrainResp <- train$Response
+h<-hist(TrainResp, breaks=8, col="red", xlab="Insurance Grades", 
+        main="Histogram with Normal Curve") 
+xfit<-seq(min(TrainResp),max(TrainResp),length=8) 
+yfit<-dnorm(xfit,mean=mean(TrainResp),sd=sd(TrainResp)) 
+yfit <- yfit*diff(h$mids[1:2])*length(TrainResp) 
+lines(xfit, yfit, col="blue", lwd=2)
+
+boxplot(train$Response,data=train)
+
+```
+
+**Populate train$Response missing values with the median**
+```{r comment="", echo=TRUE}
+train <- manage_na(train[,-c(1)])     #   Except columns 1 (ID)    
+
+test <- manage_na(test[,-c(1)])
+
+```
+<br>
+<br>
+#Since my variable 'Response' has a values from 1 to 8, I created a new column "Approved" to indicate that
+#the application has a max value of 8 or not. Approved = 1 only when Response = 8. This is just to be able
+#to run 'glm' method where the dependent variable (in this case Response) needs to be a binary value.
+#Using 'Approved' as an independent variable in the glm method will give me an idea of the independent variables
+#that are significant when an application is approved.
+```{r comment="", echo=TRUE}
+train$Approved  <- 0
+train$Approved[train$Response==8]  <- 1   # Approved = 1 when Response = 8
+
+test$Approved  <- 0
+test$Approved[test$Response==8]  <- 1   # Approved = 1 when Response = 8
+
+# Approved = 1, Rejectedtest
+table(train$Approved)
+
+# Getting the frequency in the Nominal Variable Product_Info_2
+ProductInfo2 <- data.frame(table(train$Product_Info_2)) 
+ProductInfo2_Sorted <- ProductInfo2 %>% arrange(desc(Freq))
+ProductInfo2_Sorted
+
+```
+<br>
+<br>
+**We need a baseline method to compare our predictions. In this case, we can say that 19,489 out of 59381 obs were Approved (Response=8)in our training data set. Therefore, our base line method has an accuracy of 32.8% and that is what we will try to beat with a logistic regression model.**
+**I still can improve the AIC value by removing more variables that are not significant in the following model:**
+```{r comment="", echo=TRUE}
+TrainLog = glm(Approved ~ Product_Info_1 + Product_Info_2 + 
+                          #Product_Info_3 +
+                          Product_Info_4 + Product_Info_5 +  
+                          InsuredInfo_2 +
+                          InsuredInfo_4 +
+                          InsuredInfo_5 + InsuredInfo_6 +
+                          InsuredInfo_7 + 
+                          Insurance_History_1 + Insurance_History_2 +  
+                          Family_Hist_1 + 
+                          #Family_Hist_2 +
+                          Family_Hist_3 +
+                          Family_Hist_4 + Family_Hist_5 +
+                          Medical_History_1 + Medical_History_2 + Medical_History_3 +
+                          Medical_History_4 + Medical_History_5 + 
+                 #Medical_History_6 +
+                 Medical_History_7 +  
+                 #Medical_History_9 +
+                 Medical_History_10 +  
+                 Medical_History_13 + Medical_History_14 + Medical_History_15 +
+                 Medical_History_17 + Medical_History_18 +
+                 Medical_History_20 + 
+                 Medical_History_23 + Medical_History_24 +
+                 #Medical_History_27 + Medical_History_29 + 
+                 Medical_History_30 +
+                 Medical_History_31 + Medical_History_32 +  
+                 #Medical_History_35 +  
+                 Medical_History_38 + Medical_History_39 +      
+                 Medical_History_40 +     
+                 Medical_Keyword_3  + Medical_Keyword_4  +
+                 Medical_Keyword_6  +  
+                 #Medical_Keyword_9  + 
+                 Medical_Keyword_12  +
+                 Medical_Keyword_15 +  Medical_Keyword_22  +    
+                          Ht + Wt +  
+                          Ins_Age, 
+                          data = train, family=binomial)
+
+summary(TrainLog)
+```
+<br>
+<br>
+**Threshold**
+```{r comment="", echo=TRUE}
+predictTrain = predict(TrainLog, type="response")
+
+tapply(predictTrain, train$Approved,mean)
+ 
+summary(predictTrain)
+
+table(train$Approved,predictTrain > 0.5)
+
+table(train$Approved,predictTrain > 0.7)
+
+table(train$Approved,predictTrain > 0.2)
+
+ROCRpred = prediction(predictTrain,train$Approved)
+
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+
+plot(ROCRperf)
+
+plot(ROCRperf, colorsize=TRUE)
+```
+<br>
+<br>
+**Making predictions**
+```{r comment="", echo=TRUE}
+dim(test)
+
+predictTest = predict(TrainLog, type="response", newdata = test)
+
+summary(predictTest)
+
+table(test$Approved,predictTest > 0.5)
+```
+<br>
+<br>
+<br>
